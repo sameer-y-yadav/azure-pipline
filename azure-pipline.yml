@@ -1,1 +1,44 @@
 
+trigger:
+  branches:
+    include:
+      - moved-application-properties-to-az-keyvault   # pipeline runs on push to main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+# Step 1: Build Docker image
+- task: Docker@2
+  displayName: Build Docker image
+  inputs:
+    command: build
+    repository: order-service
+    dockerfile: '**/Dockerfile'
+    tags: latest
+
+# Step 2: Save image as tar (optional if not using registry)
+- script: |
+    docker save order-service:latest -o order-service.tar
+  displayName: Save Docker image
+
+# Step 3: Copy image + docker-compose to VM
+- task: CopyFilesOverSSH@0
+  inputs:
+    sshEndpoint: 'MyAzureVM'
+    sourceFolder: '$(System.DefaultWorkingDirectory)'
+    contents: |
+      order-service.tar
+      docker-compose.yml
+    targetFolder: '/home/azureuser/order-service'
+
+# Step 4: Load image + run docker-compose on VM
+- task: SSH@0
+  inputs:
+    sshEndpoint: 'MyAzureVM'
+    runOptions: 'inline'
+    inline: |
+      cd /home/azureuser/order-service
+      docker load -i order-service.tar
+      docker-compose down || true
+      docker-compose up -d
